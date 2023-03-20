@@ -40,7 +40,7 @@
     "typescript": "^4.1.0"
   },
   "peerDependencies": {
-    "esbuild": "^0.15.0"
+    "esbuild": ">=0.15"
   },
   "dependencies": {
     "@ampproject/remapping": "^2.2.0",
