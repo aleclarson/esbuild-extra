@@ -6,12 +6,12 @@ import * as crypto from 'crypto'
 import * as esbuild from 'esbuild'
 import * as fs from 'fs'
 import * as path from 'path'
-import { BuildExtensions, Chunk, OnTransformArgs, File } from './types'
 import {
   appendInlineSourceMap,
   combineSourcemaps,
   loadSourceMap,
 } from './sourceMaps'
+import { BuildExtensions, Chunk, File, OnTransformArgs } from './types'
 
 export * from './types'
 
@@ -315,7 +315,30 @@ export function getBuildExtensions(
 
       const transformedCode = transformArgs.code
       const combinedMap =
-        maps.length > 1 ? combineSourcemaps(args.path, maps) : maps[0]
+        maps.length > 1
+          ? combineSourcemaps(args.path, [...maps].reverse())
+          : maps[0]
+
+      if (combinedMap) {
+        const pathToSourceRoot = sourceRoot || path.dirname(args.path)
+        const pathToWorkingDir = path.relative(pathToSourceRoot, absWorkingDir)
+
+        combinedMap.sources = combinedMap.sources.map((source: string) => {
+          let src = path.relative(pathToSourceRoot, source)
+          if (!src.startsWith('..')) {
+            return src
+          }
+          src = path.relative(absWorkingDir, source)
+          if (src.startsWith('..')) {
+            return source
+          }
+          return path.join(pathToWorkingDir, src)
+        })
+
+        if (sourceRoot) {
+          combinedMap.sourceRoot = sourceRoot
+        }
+      }
 
       return {
         contents: combinedMap
@@ -337,13 +360,15 @@ export function getBuildExtensions(
       outfile,
       outdir = outfile ? path.dirname(outfile) : undefined,
       outbase,
-      sourceRoot = '',
+      sourceRoot,
       assetNames = '[dir]/[name]',
     } = pluginBuild.initialOptions
 
-    sourceRoot = path.resolve(absWorkingDir, sourceRoot)
     if (outdir) {
       outdir = path.resolve(absWorkingDir, outdir)
+    }
+    if (sourceRoot) {
+      sourceRoot = path.resolve(absWorkingDir, sourceRoot)
     }
 
     const computeOutputPath = (
@@ -357,7 +382,7 @@ export function getBuildExtensions(
       const name = path.basename(filePath)
 
       return path.resolve(
-        outdir || sourceRoot,
+        outdir || sourceRoot || absWorkingDir,
         computeName(pattern, dir, name, buffer)
       )
     }
@@ -486,7 +511,7 @@ export function getBuildExtensions(
           config.stdin = {
             sourcefile: options.path,
             contents: options.contents.toString(),
-            resolveDir: sourceRoot,
+            resolveDir: sourceRoot || absWorkingDir,
           }
         } else {
           config.entryPoints = [options.path]
