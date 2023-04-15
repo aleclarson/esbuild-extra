@@ -1,5 +1,7 @@
 import esbuild from 'esbuild'
 
+type Promisable<T> = T | Promise<T>
+
 export interface BuildExtensions extends Pick<esbuild.PluginBuild, 'onLoad'> {
   getLoader(id: string): esbuild.Loader | undefined
   isEmittedPath(id: string): boolean
@@ -13,7 +15,7 @@ export interface BuildExtensions extends Pick<esbuild.PluginBuild, 'onLoad'> {
     options: OnTransformOptions,
     callback: (
       args: OnTransformArgs
-    ) => Promise<OnTransformResult | null | undefined>
+    ) => Promisable<OnTransformResult | null | undefined>
   ): void
 
   emitChunk(options: EmitChunkOptions): Promise<Chunk>
