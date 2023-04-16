@@ -28,9 +28,10 @@
   "homepage": "https://github.com/aleclarson/esbuild-extra#readme",
   "prettier": "@alloc/prettier-config",
   "scripts": {
-    "build": "tsup-node src/index.ts src/global.ts --format esm --dts"
+    "build": "rimraf dist && tsup-node src/index.ts src/global.ts --format esm --dts"
   },
   "devDependencies": {
+    "@alloc/fast-rimraf": "^1.0.8",
     "@alloc/prettier-config": "^1.0.0",
     "@types/convert-source-map": "^2.0.0",
     "@types/node": "^18.15.3",

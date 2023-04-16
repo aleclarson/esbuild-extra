@@ -1,6 +1,7 @@
 lockfileVersion: 5.4
 
 specifiers:
+  '@alloc/fast-rimraf': ^1.0.8
   '@alloc/prettier-config': ^1.0.0
   '@ampproject/remapping': ^2.2.0
   '@types/convert-source-map': ^2.0.0
@@ -16,6 +17,7 @@ dependencies:
   convert-source-map: 2.0.0
 
 devDependencies:
+  '@alloc/fast-rimraf': 1.0.8
   '@alloc/prettier-config': 1.0.0
   '@types/convert-source-map': 2.0.0
   '@types/node': 18.15.3
@@ -25,6 +27,11 @@ devDependencies:
   typescript: 4.9.5
 
 packages:
+
+  /@alloc/fast-rimraf/1.0.8:
+    resolution: {integrity: sha512-TsRTRLLDW6Q4fWBAYlbkcaHQDAANKsI0smrhS/1x7/GHcjVxo+r+2VRbqrWaYpmjdhvCp5v7n2wtwkMYp+Kivw==}
+    hasBin: true
+    dev: true
 
   /@alloc/prettier-config/1.0.0:
     resolution: {integrity: sha512-xm50V1qxSdTh1O1fKA+gqcU605YSnxfq6HwtYSFU3fRsKMFnUSuSOxqSAPI7y2sRxqPed2EIuGmNn107LVQM6g==}
