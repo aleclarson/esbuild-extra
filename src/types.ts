@@ -35,6 +35,8 @@ export interface OnTransformOptions
 export interface OnTransformArgs extends esbuild.OnLoadArgs {
   code: string
   loader: esbuild.Loader
+  /** Exists if the file extension has changed. */
+  initialPath?: string
 }
 
 export interface OnTransformResult {

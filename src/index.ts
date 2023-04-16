@@ -222,6 +222,7 @@ export function getBuildExtensions(
 
               const ext = extsByLoader[loader]
               if (ext) {
+                transformArgs.initialPath = args.path
                 transformArgs.path = args.path + ext
               }
             }
