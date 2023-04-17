@@ -6,6 +6,7 @@ import * as crypto from 'crypto'
 import * as esbuild from 'esbuild'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as tsconfck from 'tsconfck'
 import {
   appendInlineSourceMap,
   combineSourcemaps,
@@ -162,7 +163,8 @@ export function getBuildExtensions(
       let initialCode!: string
       let loader: esbuild.Loader | undefined
       let transformArgs: OnTransformArgs | undefined
-      let jsTransforms = new Set<TransformRule>()
+      let jsTransforms: Set<TransformRule> | undefined
+      let jsxTransforms: Set<TransformRule> | undefined
       let resolveDir = loadResult.resolveDir ?? args.resolveDir
       let maps: any[] = []
 
@@ -181,24 +183,35 @@ export function getBuildExtensions(
 
         const filter = options.filter!
         if (!filter.test(filePath)) {
-          const shouldTransformJS =
-            (loader == 'ts' && filter.test(filePath + '.js')) ||
-            (loader == 'tsx' && filter.test(filePath + '.jsx'))
-
-          if (shouldTransformJS) {
-            jsTransforms.add(rule)
+          if (loader == 'ts' || loader == 'jsx') {
+            if (filter.test(filePath + '.js')) {
+              jsTransforms ||= new Set()
+              jsTransforms.add(rule)
+            }
+          } else if (loader == 'tsx') {
+            if (filter.test(filePath + '.jsx')) {
+              jsxTransforms ||= new Set()
+              jsxTransforms.add(rule)
+            } else if (filter.test(filePath + '.js')) {
+              jsTransforms ||= new Set()
+              jsTransforms.add(rule)
+            }
           }
           return
         }
 
-        // If a plugin handles the TS->JS transform, we still need to
-        // maintain the order in which plugins are applied.
-        if (
-          rules != jsTransforms &&
-          jsTransforms.size &&
-          (loader == 'js' || loader == 'jsx')
-        ) {
-          jsTransforms.add(rule)
+        // If a plugin handles the TS->JS or JSX->JS transform, we still
+        // need to maintain the order in which plugins are applied.
+        if (loader == 'js' && jsTransforms && rules != jsTransforms) {
+          // If a rule is applied to both JS and JSX, add it to only the
+          // JSX queue.
+          if (!jsxTransforms || !jsxTransforms.has(rule)) {
+            jsTransforms.add(rule)
+          }
+          return
+        }
+        if (loader == 'jsx' && jsxTransforms && !rules) {
+          jsxTransforms.add(rule)
           return
         }
 
@@ -263,18 +276,32 @@ export function getBuildExtensions(
             break transform
           }
         }
-        if (jsTransforms.size) {
-          const error = await applyTransformRule([
-            'esbuild-typescript',
+        if (jsTransforms || jsxTransforms) {
+          let tsconfigPath: string | undefined
+          let tsconfigRaw: string | undefined
+          if (/\.[mc]?tsx?$/.test(args.path)) {
+            try {
+              tsconfigPath = await tsconfck.find(args.path, {
+                root: process.cwd(),
+              })
+              tsconfigRaw = fs.readFileSync(tsconfigPath, 'utf8')
+            } catch {}
+          }
+
+          const createEsbuildRule = (
+            options?: esbuild.TransformOptions
+          ): TransformRule => [
+            'htmelt-esbuild',
             { filter: /.*/ },
             async args => {
               const result = await esbuild.transform(args.code, {
                 format: 'esm',
-                jsx: 'preserve',
-                loader: args.loader,
                 sourcemap: true,
                 platform: 'neutral',
                 sourcefile: args.path,
+                loader: args.loader,
+                tsconfigRaw,
+                ...options,
               })
               return {
                 code: result.code,
@@ -283,16 +310,49 @@ export function getBuildExtensions(
                 warnings: result.warnings,
               }
             },
-          ])
-          if (error) {
-            errors.push(error)
-            break transform
-          }
-          for (const rule of jsTransforms) {
-            const error = await applyTransformRule(rule, jsTransforms)
+          ]
+
+          // Compile TSX to JSX.
+          if (jsxTransforms) {
+            const error = await applyTransformRule(
+              createEsbuildRule({ jsx: 'preserve' }),
+              jsxTransforms
+            )
             if (error) {
               errors.push(error)
               break transform
+            }
+            for (const rule of jsxTransforms) {
+              const error = await applyTransformRule(rule, jsxTransforms)
+              if (error) {
+                errors.push(error)
+                break transform
+              }
+            }
+          }
+
+          // Compile TS & JSX to JS.
+          if (jsTransforms) {
+            const error = await applyTransformRule(
+              createEsbuildRule({
+                // This ensures the tsconfig.json is respected in cases
+                // where a TypeScript file has had ".jsx" appended to
+                // its transformArgs path.
+                sourcefile: args.path,
+                loader: getLoader(args.path),
+              }),
+              jsTransforms
+            )
+            if (error) {
+              errors.push(error)
+              break transform
+            }
+            for (const rule of jsTransforms) {
+              const error = await applyTransformRule(rule, jsTransforms)
+              if (error) {
+                errors.push(error)
+                break transform
+              }
             }
           }
         }
