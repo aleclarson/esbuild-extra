@@ -286,7 +286,7 @@ export function getBuildExtensions(
           const createEsbuildRule = (
             options?: esbuild.TransformOptions
           ): TransformRule => [
-            'htmelt-esbuild',
+            'esbuild-extra:transform',
             { filter: /.*/ },
             async args => {
               const result = await esbuild.transform(args.code, {
