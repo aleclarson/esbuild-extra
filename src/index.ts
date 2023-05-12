@@ -39,20 +39,15 @@ type LoadRule = [pluginName: string, ...params: LoadParams]
 type TransformRule = [pluginName: string, ...params: TransformParams]
 
 export function getBuildExtensions(
-  pluginBuild: esbuild.PluginBuild
-): (pluginName: string) => BuildExtensions
-
-export function getBuildExtensions(
   pluginBuild: esbuild.PluginBuild,
   pluginName: string
-): BuildExtensions
-
-export function getBuildExtensions(
-  pluginBuild: esbuild.PluginBuild,
-  pluginName?: string
-) {
-  let extensions: ((pluginName: string) => BuildExtensions) | undefined =
-    Reflect.get(pluginBuild.initialOptions, kBuildExtensions)
+): BuildExtensions {
+  let extensions:
+    | ((
+        pluginBuild: esbuild.PluginBuild,
+        pluginName: string
+      ) => BuildExtensions)
+    | undefined = Reflect.get(pluginBuild.initialOptions, kBuildExtensions)
 
   if (!extensions) {
     const onLoadRules: LoadRule[] = []
@@ -451,235 +446,241 @@ export function getBuildExtensions(
     const RESOLVED_AS_FILE = 1
     const RESOLVED_AS_MODULE = 2
 
-    const onLoad = pluginBuild.onLoad.bind(pluginBuild)
+    extensions = (pluginBuild, pluginName) => {
+      const onLoad = pluginBuild.onLoad.bind(pluginBuild)
 
-    extensions = pluginName => ({
-      RESOLVED_AS_FILE,
-      RESOLVED_AS_MODULE,
-      getLoader,
-      isEmittedPath(id) {
-        for (const chunk of chunks.values()) {
-          if (chunk.id === id) {
-            return true
+      return {
+        RESOLVED_AS_FILE,
+        RESOLVED_AS_MODULE,
+        getLoader,
+        isEmittedPath(id) {
+          for (const chunk of chunks.values()) {
+            if (chunk.id === id) {
+              return true
+            }
           }
-        }
-        for (const file of files.values()) {
-          if (file.id === id) {
-            return true
+          for (const file of files.values()) {
+            if (file.id === id) {
+              return true
+            }
           }
-        }
-        return false
-      },
-      async resolveLocallyFirst(path, options = {}) {
-        const isLocalSpecifier = path.startsWith('./') || path.startsWith('../')
-        if (!isLocalSpecifier) {
-          // force local file resolution first
-          const result = await pluginBuild.resolve(`./${path}`, options)
+          return false
+        },
+        async resolveLocallyFirst(path, options = {}) {
+          const isLocalSpecifier =
+            path.startsWith('./') || path.startsWith('../')
+          if (!isLocalSpecifier) {
+            // force local file resolution first
+            const result = await pluginBuild.resolve(`./${path}`, options)
 
+            if (result.path) {
+              return {
+                ...result,
+                pluginData: RESOLVED_AS_FILE,
+              }
+            }
+          }
+
+          const result = await pluginBuild.resolve(path, options)
           if (result.path) {
             return {
               ...result,
-              pluginData: RESOLVED_AS_FILE,
+              pluginData: isLocalSpecifier
+                ? RESOLVED_AS_FILE
+                : RESOLVED_AS_MODULE,
             }
           }
-        }
 
-        const result = await pluginBuild.resolve(path, options)
-        if (result.path) {
-          return {
-            ...result,
-            pluginData: isLocalSpecifier
-              ? RESOLVED_AS_FILE
-              : RESOLVED_AS_MODULE,
-          }
-        }
+          return result
+        },
+        onLoad(options, callback) {
+          onLoad(options, async args => {
+            const result = await callback(args)
+            if (!result) {
+              return
+            }
 
-        return result
-      },
-      onLoad(options, callback) {
-        onLoad(options, async args => {
-          const result = await callback(args)
-          if (!result) {
-            return
-          }
-
-          return transform({
-            ...result,
-            path: args.path,
-            namespace: args.namespace,
-            isResult: true,
+            return transform({
+              ...result,
+              path: args.path,
+              namespace: args.namespace,
+              isResult: true,
+            })
           })
-        })
-        onLoadRules.push([pluginName, options, callback])
-      },
-      onTransform({ loaders, extensions, ...options }, callback) {
-        const bodies: string[] = []
-        if (options.filter) {
-          bodies.push(options.filter.source)
-        }
-        if (loaders) {
-          const matches = Object.entries(getLoaders()).filter(({ 1: loader }) =>
-            loaders.includes(loader)
-          )
-          if (matches.length) {
-            bodies.push(
-              `\\.(${matches.map(([ext]) => ext.replace('.', '')).join('|')})$`
+          onLoadRules.push([pluginName, options, callback])
+        },
+        onTransform({ loaders, extensions, ...options }, callback) {
+          const bodies: string[] = []
+          if (options.filter) {
+            bodies.push(options.filter.source)
+          }
+          if (loaders) {
+            const matches = Object.entries(getLoaders()).filter(
+              ({ 1: loader }) => loaders.includes(loader)
             )
+            if (matches.length) {
+              bodies.push(
+                `\\.(${matches
+                  .map(([ext]) => ext.replace('.', ''))
+                  .join('|')})$`
+              )
+            }
           }
-        }
-        if (extensions) {
-          bodies.push(`(${extensions.join('|')})$`)
-        }
-        if (bodies.length) {
-          options.filter = new RegExp(`(${bodies.join(')|(')})`)
-          onTransformRules.push([pluginName, options, callback])
-          onLoad(options as any, args => transform(args))
-        }
-      },
-      async emitChunk(options) {
-        const defaults = pluginBuild.initialOptions
-        const format = options.format || defaults.format
-
-        const config = {
-          ...defaults,
-          format,
-          outdir: options.outdir
-            ? path.resolve(outdir || absWorkingDir, options.outdir)
-            : outdir,
-          bundle: options.bundle ?? defaults.bundle,
-          splitting:
-            format === 'esm' ? options.splitting ?? defaults.splitting : false,
-          platform: options.platform ?? defaults.platform,
-          target: options.target ?? defaults.target,
-          plugins: options.plugins ?? defaults.plugins,
-          external: options.external ?? defaults.external,
-          jsxFactory:
-            'jsxFactory' in options ? options.jsxFactory : defaults.jsxFactory,
-          entryNames: defaults.chunkNames || defaults.entryNames,
-          write: options.write ?? defaults.write ?? true,
-          globalName: undefined,
-          outfile: undefined,
-          metafile: true,
-        } satisfies esbuild.BuildOptions
-
-        Object.defineProperty(config, 'chunk', {
-          enumerable: false,
-          value: true,
-        })
-
-        if (options.contents) {
-          delete config.entryPoints
-          config.stdin = {
-            sourcefile: options.path,
-            contents: options.contents.toString(),
-            resolveDir: sourceRoot || absWorkingDir,
+          if (extensions) {
+            bodies.push(`(${extensions.join('|')})$`)
           }
-        } else {
-          config.entryPoints = [options.path]
-        }
+          if (bodies.length) {
+            options.filter = new RegExp(`(${bodies.join(')|(')})`)
+            onTransformRules.push([pluginName, options, callback])
+            onLoad(options as any, args => transform(args))
+          }
+        },
+        async emitChunk(options) {
+          const defaults = pluginBuild.initialOptions
+          const format = options.format || defaults.format
 
-        if (config.define) {
-          delete config.define['this']
-        }
+          const config = {
+            ...defaults,
+            format,
+            outdir: options.outdir
+              ? path.resolve(outdir || absWorkingDir, options.outdir)
+              : outdir,
+            bundle: options.bundle ?? defaults.bundle,
+            splitting:
+              format === 'esm'
+                ? options.splitting ?? defaults.splitting
+                : false,
+            platform: options.platform ?? defaults.platform,
+            target: options.target ?? defaults.target,
+            plugins: options.plugins ?? defaults.plugins,
+            external: options.external ?? defaults.external,
+            jsxFactory:
+              'jsxFactory' in options
+                ? options.jsxFactory
+                : defaults.jsxFactory,
+            entryNames: defaults.chunkNames || defaults.entryNames,
+            write: options.write ?? defaults.write ?? true,
+            globalName: undefined,
+            outfile: undefined,
+            metafile: true,
+          } satisfies esbuild.BuildOptions
 
-        const result = await esbuild.build(config)
-        const outputs = result.metafile.outputs
-        const outFile = Object.entries(outputs)
-          .filter(([output]) => !output.endsWith('.map'))
-          .find(([output]) => outputs[output].entryPoint)
-
-        if (!outFile) {
-          throw new Error('Unable to locate build artifacts')
-        }
-
-        const resolvedOutputFile = path.resolve(outFile[0])
-        const buffer = result.outputFiles
-          ? result.outputFiles[0].contents
-          : fs.readFileSync(resolvedOutputFile)
-
-        const chunkResult: Chunk = {
-          ...result,
-          id: hash(buffer),
-          path: path.relative(outdir || absWorkingDir, resolvedOutputFile),
-          filePath: resolvedOutputFile,
-        }
-
-        chunks.set(options.path, chunkResult)
-        return chunkResult
-      },
-      async emitFile(source, buffer) {
-        if (!buffer) {
-          const result = await load({
-            pluginData: null,
-            namespace: 'file',
-            suffix: '',
-            path: source,
+          Object.defineProperty(config, 'chunk', {
+            enumerable: false,
+            value: true,
           })
 
-          if (result && result.contents) {
-            buffer = Buffer.from(result.contents)
+          if (options.contents) {
+            delete config.entryPoints
+            config.stdin = {
+              sourcefile: options.path,
+              contents: options.contents.toString(),
+              resolveDir: sourceRoot || absWorkingDir,
+            }
           } else {
-            buffer = fs.readFileSync(source)
+            config.entryPoints = [options.path]
           }
-        } else if (typeof buffer === 'string') {
-          buffer = Buffer.from(buffer)
-        }
 
-        const outputFile = computeOutputPath(assetNames, source, buffer)
-        const bytes = buffer.length
-        const write = pluginBuild.initialOptions.write ?? true
-        if (write) {
-          fs.mkdirSync(path.dirname(outputFile), {
-            recursive: true,
-          })
-          fs.writeFileSync(outputFile, buffer)
-        }
+          if (config.define) {
+            delete config.define['this']
+          }
 
-        const outputFiles = !write
-          ? [createOutputFile(outputFile, Buffer.from(buffer))]
-          : undefined
+          const result = await esbuild.build(config)
+          const outputs = result.metafile.outputs
+          const outFile = Object.entries(outputs)
+            .filter(([output]) => !output.endsWith('.map'))
+            .find(([output]) => outputs[output].entryPoint)
 
-        const result = createResult(outputFiles, {
-          inputs: {
-            [path.relative(absWorkingDir, source)]: {
-              bytes,
-              imports: [],
-            },
-          },
-          outputs: {
-            [path.relative(absWorkingDir, outputFile)]: {
-              bytes,
-              inputs: {
-                [path.relative(absWorkingDir, source)]: {
-                  bytesInOutput: bytes,
-                },
+          if (!outFile) {
+            throw new Error('Unable to locate build artifacts')
+          }
+
+          const resolvedOutputFile = path.resolve(outFile[0])
+          const buffer = result.outputFiles
+            ? result.outputFiles[0].contents
+            : fs.readFileSync(resolvedOutputFile)
+
+          const chunkResult: Chunk = {
+            ...result,
+            id: hash(buffer),
+            path: path.relative(outdir || absWorkingDir, resolvedOutputFile),
+            filePath: resolvedOutputFile,
+          }
+
+          chunks.set(options.path, chunkResult)
+          return chunkResult
+        },
+        async emitFile(source, buffer) {
+          if (!buffer) {
+            const result = await load({
+              pluginData: null,
+              namespace: 'file',
+              suffix: '',
+              path: source,
+            })
+
+            if (result && result.contents) {
+              buffer = Buffer.from(result.contents)
+            } else {
+              buffer = fs.readFileSync(source)
+            }
+          } else if (typeof buffer === 'string') {
+            buffer = Buffer.from(buffer)
+          }
+
+          const outputFile = computeOutputPath(assetNames, source, buffer)
+          const bytes = buffer.length
+          const write = pluginBuild.initialOptions.write ?? true
+          if (write) {
+            fs.mkdirSync(path.dirname(outputFile), {
+              recursive: true,
+            })
+            fs.writeFileSync(outputFile, buffer)
+          }
+
+          const outputFiles = !write
+            ? [createOutputFile(outputFile, Buffer.from(buffer))]
+            : undefined
+
+          const result = createResult(outputFiles, {
+            inputs: {
+              [path.relative(absWorkingDir, source)]: {
+                bytes,
+                imports: [],
               },
-              imports: [],
-              exports: [],
-              entryPoint: path.relative(absWorkingDir, source),
             },
-          },
-        })
+            outputs: {
+              [path.relative(absWorkingDir, outputFile)]: {
+                bytes,
+                inputs: {
+                  [path.relative(absWorkingDir, source)]: {
+                    bytesInOutput: bytes,
+                  },
+                },
+                imports: [],
+                exports: [],
+                entryPoint: path.relative(absWorkingDir, source),
+              },
+            },
+          })
 
-        const fileResult: File = {
-          ...result,
-          id: hash(buffer),
-          path: path.relative(outdir || absWorkingDir, outputFile),
-          filePath: outputFile,
-        }
+          const fileResult: File = {
+            ...result,
+            id: hash(buffer),
+            path: path.relative(outdir || absWorkingDir, outputFile),
+            filePath: outputFile,
+          }
 
-        files.set(source, fileResult)
-        return fileResult
-      },
-    })
+          files.set(source, fileResult)
+          return fileResult
+        },
+      }
+    }
 
     Reflect.set(pluginBuild.initialOptions, kBuildExtensions, extensions)
   }
 
-  if (pluginName) {
-    return extensions(pluginName)
-  }
-  return extensions
+  return extensions(pluginBuild, pluginName)
 }
 
 function decodeContents(contents: string | Uint8Array) {
