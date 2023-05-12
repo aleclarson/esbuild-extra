@@ -65,17 +65,17 @@ export function getBuildExtensions(
       ...pluginBuild.initialOptions.loader,
     }
 
-    const getLoaders = () => loaders
     const getLoader = (id: string) => {
       return loaders[path.extname(id)]
     }
 
     const extsByLoader = Object.entries(loaders).reduce(
       (acc, [ext, loader]) => {
-        acc[loader] ||= ext
+        acc[loader] ||= []
+        acc[loader].push(ext)
         return acc
       },
-      {} as Record<esbuild.Loader, string>
+      {} as Record<esbuild.Loader, string[]>
     )
 
     async function load(
@@ -228,10 +228,10 @@ export function getBuildExtensions(
             if (result.loader && result.loader != transformArgs.loader) {
               loader = transformArgs.loader = result.loader
 
-              const ext = extsByLoader[loader]
-              if (ext) {
+              const exts = extsByLoader[loader]
+              if (exts) {
                 transformArgs.initialPath = args.path
-                transformArgs.path = args.path + ext
+                transformArgs.path = args.path + exts[0]
               }
             }
             if (result.warnings) {
@@ -510,29 +510,74 @@ export function getBuildExtensions(
           onLoadRules.push([pluginName, options, callback])
         },
         onTransform({ loaders, extensions, ...options }, callback) {
-          const bodies: string[] = []
+          const patterns: string[] = []
+
           if (options.filter) {
-            bodies.push(options.filter.source)
+            patterns.push(options.filter.source)
           }
+
+          if (extensions) {
+            patterns.push(joinRegexSources(extensions) + '$')
+          }
+
+          // Load patterns are used to ensure a TypeScript file is
+          // matched for a JS transform, even if no TS transforms exist.
+          const loadPatterns: string[] = []
+
           if (loaders) {
-            const matches = Object.entries(getLoaders()).filter(
-              ({ 1: loader }) => loaders.includes(loader)
+            let js = false,
+              jsx = false,
+              ts = false,
+              tsx = false
+
+            const extensions: string[] = []
+            for (const loader of loaders) {
+              extensions.push(...extsByLoader[loader])
+
+              if (loader === 'js') js = true
+              else if (loader === 'jsx') jsx = true
+              else if (loader === 'ts') ts = true
+              else if (loader === 'tsx') tsx = true
+            }
+            patterns.push(
+              `\\.${joinRegexSources(
+                extensions.map(ext => ext.replace('.', ''))
+              )}$`
             )
-            if (matches.length) {
-              bodies.push(
-                `\\.(${matches
-                  .map(([ext]) => ext.replace('.', ''))
-                  .join('|')})$`
+
+            const loadExtensions: string[] = []
+            if (js || jsx) {
+              if (!jsx) {
+                loadExtensions.push(...extsByLoader.jsx)
+              }
+              if (!tsx) {
+                loadExtensions.push(...extsByLoader.tsx)
+              }
+              if (!ts && js) {
+                loadExtensions.push(...extsByLoader.ts)
+              }
+            }
+            if (loadExtensions.length) {
+              loadPatterns.push(
+                `\\.${joinRegexSources(
+                  [...extensions, ...loadExtensions].map(ext =>
+                    ext.replace('.', '')
+                  )
+                )}$`
               )
             }
           }
-          if (extensions) {
-            bodies.push(`(${extensions.join('|')})$`)
-          }
-          if (bodies.length) {
-            options.filter = new RegExp(`(${bodies.join(')|(')})`)
+
+          if (patterns.length) {
+            options.filter = new RegExp(joinRegexSources(patterns))
             onTransformRules.push([pluginName, options, callback])
-            onLoad(options as any, args => transform(args))
+
+            if (loadPatterns.length) {
+              const filter = new RegExp(joinRegexSources(loadPatterns))
+              onLoad({ ...options, filter }, args => transform(args))
+            } else {
+              onLoad(options as any, args => transform(args))
+            }
           }
         },
         async emitChunk(options) {
@@ -681,6 +726,10 @@ export function getBuildExtensions(
   }
 
   return extensions(pluginBuild, pluginName)
+}
+
+function joinRegexSources(sources: string[]) {
+  return sources.length > 1 ? `(${sources.join('|')})` : sources[0]
 }
 
 function decodeContents(contents: string | Uint8Array) {

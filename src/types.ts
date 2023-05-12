@@ -28,7 +28,7 @@ export interface BuildExtensions extends Pick<esbuild.PluginBuild, 'onLoad'> {
 export interface OnTransformOptions
   extends Omit<esbuild.OnLoadOptions, 'filter'> {
   filter?: RegExp
-  loaders?: string[]
+  loaders?: esbuild.Loader[]
   extensions?: string[]
 }
 
