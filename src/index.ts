@@ -48,6 +48,10 @@ export function getBuildExtensions(
   pluginBuild: esbuild.PluginBuild,
   pluginName: string
 ): BuildExtensions {
+  if ('onTransform' in pluginBuild) {
+    return pluginBuild as any
+  }
+
   const { initialOptions } = pluginBuild
 
   let extensions:
