@@ -12,7 +12,13 @@ import {
   combineSourcemaps,
   loadSourceMap,
 } from './sourceMaps'
-import { BuildExtensions, Chunk, File, OnTransformArgs } from './types'
+import {
+  BuildExtensions,
+  Chunk,
+  File,
+  OnTransformArgs,
+  EmitChunkOptions,
+} from './types'
 
 export * from './types'
 
@@ -42,12 +48,14 @@ export function getBuildExtensions(
   pluginBuild: esbuild.PluginBuild,
   pluginName: string
 ): BuildExtensions {
+  const { initialOptions } = pluginBuild
+
   let extensions:
     | ((
         pluginBuild: esbuild.PluginBuild,
         pluginName: string
       ) => BuildExtensions)
-    | undefined = Reflect.get(pluginBuild.initialOptions, kBuildExtensions)
+    | undefined = Reflect.get(initialOptions, kBuildExtensions)
 
   if (!extensions) {
     const onLoadRules: LoadRule[] = []
@@ -62,7 +70,7 @@ export function getBuildExtensions(
       '.cjs': 'js',
       '.mts': 'ts',
       '.cts': 'ts',
-      ...pluginBuild.initialOptions.loader,
+      ...initialOptions.loader,
     }
 
     const getLoader = (id: string) => {
@@ -411,28 +419,101 @@ export function getBuildExtensions(
     const chunks = new Map<string, Chunk>()
     const files = new Map<string, File>()
 
-    let {
-      absWorkingDir = process.cwd(),
-      outfile,
-      outdir = outfile ? path.dirname(outfile) : undefined,
-      outbase,
-      sourceRoot,
-      assetNames = '[dir]/[name]',
-    } = pluginBuild.initialOptions
-
-    if (outdir) {
-      outdir = path.resolve(absWorkingDir, outdir)
-    }
-    if (sourceRoot) {
-      sourceRoot = path.resolve(absWorkingDir, sourceRoot)
+    const isEmittedPath = (id: string) => {
+      for (const chunk of chunks.values()) {
+        if (chunk.id === id) {
+          return true
+        }
+      }
+      for (const file of files.values()) {
+        if (file.id === id) {
+          return true
+        }
+      }
+      return false
     }
 
-    const computeOutputPath = (
+    const emitChunk = async (chunkOptions: EmitChunkOptions) => {
+      const format = chunkOptions.format || initialOptions.format
+
+      const config = {
+        ...initialOptions,
+        format,
+        outdir: chunkOptions.outdir
+          ? path.resolve(outdir || absWorkingDir, chunkOptions.outdir)
+          : outdir,
+        bundle: chunkOptions.bundle ?? initialOptions.bundle,
+        splitting:
+          format === 'esm'
+            ? chunkOptions.splitting ?? initialOptions.splitting
+            : false,
+        platform: chunkOptions.platform ?? initialOptions.platform,
+        target: chunkOptions.target ?? initialOptions.target,
+        plugins: chunkOptions.plugins ?? initialOptions.plugins,
+        external: chunkOptions.external ?? initialOptions.external,
+        jsxFactory:
+          'jsxFactory' in chunkOptions
+            ? chunkOptions.jsxFactory
+            : initialOptions.jsxFactory,
+        entryNames: initialOptions.chunkNames || initialOptions.entryNames,
+        write: chunkOptions.write ?? initialOptions.write ?? true,
+        globalName: undefined,
+        outfile: undefined,
+        metafile: true,
+      } satisfies esbuild.BuildOptions
+
+      Object.defineProperty(config, 'chunk', {
+        enumerable: false,
+        value: true,
+      })
+
+      if (chunkOptions.contents) {
+        delete config.entryPoints
+        config.stdin = {
+          sourcefile: chunkOptions.path,
+          contents: chunkOptions.contents.toString(),
+          resolveDir: sourceRoot || absWorkingDir,
+        }
+      } else {
+        config.entryPoints = [chunkOptions.path]
+      }
+
+      if (config.define) {
+        delete config.define['this']
+      }
+
+      const result = await esbuild.build(config)
+      const outputs = result.metafile.outputs
+      const outFile = Object.entries(outputs)
+        .filter(([output]) => !output.endsWith('.map'))
+        .find(([output]) => outputs[output].entryPoint)
+
+      if (!outFile) {
+        throw new Error('Unable to locate build artifacts')
+      }
+
+      const resolvedOutputFile = path.resolve(outFile[0])
+      const buffer = result.outputFiles
+        ? result.outputFiles[0].contents
+        : fs.readFileSync(resolvedOutputFile)
+
+      const chunkResult: Chunk = {
+        ...result,
+        id: hash(buffer),
+        path: path.relative(outdir || absWorkingDir, resolvedOutputFile),
+        filePath: resolvedOutputFile,
+      }
+
+      chunks.set(chunkOptions.path, chunkResult)
+      return chunkResult
+    }
+
+    const resolveEmittedFile = (
       pattern: string,
       filePath: string,
       buffer: Buffer
     ) => {
-      outbase ||= getOutBase(absWorkingDir, pluginBuild.initialOptions)
+      outbase ||= getOutBase(absWorkingDir, initialOptions)
 
       const dir = path.relative(outbase, path.dirname(filePath))
       const name = path.basename(filePath)
@@ -441,6 +522,87 @@ export function getBuildExtensions(
         outdir || sourceRoot || absWorkingDir,
         computeName(pattern, dir, name, buffer)
       )
+    }
+
+    const emitFile = async (source: string, buffer?: string | Buffer) => {
+      if (!buffer) {
+        const result = await load({
+          pluginData: null,
+          namespace: 'file',
+          suffix: '',
+          path: source,
+        })
+
+        if (result && result.contents) {
+          buffer = Buffer.from(result.contents)
+        } else {
+          buffer = fs.readFileSync(source)
+        }
+      } else if (typeof buffer === 'string') {
+        buffer = Buffer.from(buffer)
+      }
+
+      const outputFile = resolveEmittedFile(assetNames, source, buffer)
+      const bytes = buffer.length
+      const write = initialOptions.write ?? true
+      if (write) {
+        fs.mkdirSync(path.dirname(outputFile), {
+          recursive: true,
+        })
+        fs.writeFileSync(outputFile, buffer)
+      }
+
+      const outputFiles = !write
+        ? [createOutputFile(outputFile, Buffer.from(buffer))]
+        : undefined
+
+      const result = createResult(outputFiles, {
+        inputs: {
+          [path.relative(absWorkingDir, source)]: {
+            bytes,
+            imports: [],
+          },
+        },
+        outputs: {
+          [path.relative(absWorkingDir, outputFile)]: {
+            bytes,
+            inputs: {
+              [path.relative(absWorkingDir, source)]: {
+                bytesInOutput: bytes,
+              },
+            },
+            imports: [],
+            exports: [],
+            entryPoint: path.relative(absWorkingDir, source),
+          },
+        },
+      })
+
+      const fileResult: File = {
+        ...result,
+        id: hash(buffer),
+        path: path.relative(outdir || absWorkingDir, outputFile),
+        filePath: outputFile,
+      }
+
+      files.set(source, fileResult)
+      return fileResult
+    }
+
+    let {
+      absWorkingDir = process.cwd(),
+      outfile,
+      outdir = outfile ? path.dirname(outfile) : undefined,
+      outbase,
+      sourceRoot,
+      assetNames = '[dir]/[name]',
+    } = initialOptions
+
+    if (outdir) {
+      outdir = path.resolve(absWorkingDir, outdir)
+    }
+    if (sourceRoot) {
+      sourceRoot = path.resolve(absWorkingDir, sourceRoot)
     }
 
     const RESOLVED_AS_FILE = 1
@@ -453,19 +615,9 @@ export function getBuildExtensions(
         RESOLVED_AS_FILE,
         RESOLVED_AS_MODULE,
         getLoader,
-        isEmittedPath(id) {
-          for (const chunk of chunks.values()) {
-            if (chunk.id === id) {
-              return true
-            }
-          }
-          for (const file of files.values()) {
-            if (file.id === id) {
-              return true
-            }
-          }
-          return false
-        },
+        isEmittedPath,
+        emitChunk,
+        emitFile,
         async resolveLocallyFirst(path, options = {}) {
           const isLocalSpecifier =
             path.startsWith('./') || path.startsWith('../')
@@ -580,149 +732,10 @@ export function getBuildExtensions(
             }
           }
         },
-        async emitChunk(options) {
-          const defaults = pluginBuild.initialOptions
-          const format = options.format || defaults.format
-
-          const config = {
-            ...defaults,
-            format,
-            outdir: options.outdir
-              ? path.resolve(outdir || absWorkingDir, options.outdir)
-              : outdir,
-            bundle: options.bundle ?? defaults.bundle,
-            splitting:
-              format === 'esm'
-                ? options.splitting ?? defaults.splitting
-                : false,
-            platform: options.platform ?? defaults.platform,
-            target: options.target ?? defaults.target,
-            plugins: options.plugins ?? defaults.plugins,
-            external: options.external ?? defaults.external,
-            jsxFactory:
-              'jsxFactory' in options
-                ? options.jsxFactory
-                : defaults.jsxFactory,
-            entryNames: defaults.chunkNames || defaults.entryNames,
-            write: options.write ?? defaults.write ?? true,
-            globalName: undefined,
-            outfile: undefined,
-            metafile: true,
-          } satisfies esbuild.BuildOptions
-
-          Object.defineProperty(config, 'chunk', {
-            enumerable: false,
-            value: true,
-          })
-
-          if (options.contents) {
-            delete config.entryPoints
-            config.stdin = {
-              sourcefile: options.path,
-              contents: options.contents.toString(),
-              resolveDir: sourceRoot || absWorkingDir,
-            }
-          } else {
-            config.entryPoints = [options.path]
-          }
-
-          if (config.define) {
-            delete config.define['this']
-          }
-
-          const result = await esbuild.build(config)
-          const outputs = result.metafile.outputs
-          const outFile = Object.entries(outputs)
-            .filter(([output]) => !output.endsWith('.map'))
-            .find(([output]) => outputs[output].entryPoint)
-
-          if (!outFile) {
-            throw new Error('Unable to locate build artifacts')
-          }
-
-          const resolvedOutputFile = path.resolve(outFile[0])
-          const buffer = result.outputFiles
-            ? result.outputFiles[0].contents
-            : fs.readFileSync(resolvedOutputFile)
-
-          const chunkResult: Chunk = {
-            ...result,
-            id: hash(buffer),
-            path: path.relative(outdir || absWorkingDir, resolvedOutputFile),
-            filePath: resolvedOutputFile,
-          }
-
-          chunks.set(options.path, chunkResult)
-          return chunkResult
-        },
-        async emitFile(source, buffer) {
-          if (!buffer) {
-            const result = await load({
-              pluginData: null,
-              namespace: 'file',
-              suffix: '',
-              path: source,
-            })
-
-            if (result && result.contents) {
-              buffer = Buffer.from(result.contents)
-            } else {
-              buffer = fs.readFileSync(source)
-            }
-          } else if (typeof buffer === 'string') {
-            buffer = Buffer.from(buffer)
-          }
-
-          const outputFile = computeOutputPath(assetNames, source, buffer)
-          const bytes = buffer.length
-          const write = pluginBuild.initialOptions.write ?? true
-          if (write) {
-            fs.mkdirSync(path.dirname(outputFile), {
-              recursive: true,
-            })
-            fs.writeFileSync(outputFile, buffer)
-          }
-
-          const outputFiles = !write
-            ? [createOutputFile(outputFile, Buffer.from(buffer))]
-            : undefined
-
-          const result = createResult(outputFiles, {
-            inputs: {
-              [path.relative(absWorkingDir, source)]: {
-                bytes,
-                imports: [],
-              },
-            },
-            outputs: {
-              [path.relative(absWorkingDir, outputFile)]: {
-                bytes,
-                inputs: {
-                  [path.relative(absWorkingDir, source)]: {
-                    bytesInOutput: bytes,
-                  },
-                },
-                imports: [],
-                exports: [],
-                entryPoint: path.relative(absWorkingDir, source),
-              },
-            },
-          })
-
-          const fileResult: File = {
-            ...result,
-            id: hash(buffer),
-            path: path.relative(outdir || absWorkingDir, outputFile),
-            filePath: outputFile,
-          }
-
-          files.set(source, fileResult)
-          return fileResult
-        },
       }
     }
 
-    Reflect.set(pluginBuild.initialOptions, kBuildExtensions, extensions)
+    Reflect.set(initialOptions, kBuildExtensions, extensions)
   }
 
   return extensions(pluginBuild, pluginName)
