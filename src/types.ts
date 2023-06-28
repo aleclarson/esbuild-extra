@@ -8,7 +8,7 @@ export interface BuildExtensions extends Pick<esbuild.PluginBuild, 'onLoad'> {
 
   resolveLocallyFirst(
     path: string,
-    options: esbuild.ResolveOptions
+    options?: esbuild.ResolveOptions
   ): Promise<esbuild.ResolveResult>
 
   onTransform(
