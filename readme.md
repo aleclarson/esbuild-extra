@@ -5,6 +5,7 @@ The lighter alternative to `@chialab/esbuild-rna` that extends `esbuild` plugins
 - `onTransform` build hook for co-operative file transformation (with sourcemap support)
 - `emitChunk` and `emitFile` build methods for dynamically generated outputs
 - `resolveLocallyFirst` build method for path resolution where local files are preferred, but plugin-resolved paths are used otherwise
+- `load` build method for loading a file via `onLoad` and `onTransform` hooks
 
 That's it, for now!
 
@@ -33,10 +34,10 @@ export default {
   setup(build) {
     const { onTransform } = getBuildExtensions(build, 'my-esbuild-plugin')
 
-    onTransform({ loaders: ['tsx'] }, async (args) => {
+    onTransform({ loaders: ['tsx'] }, async args => {
       // Transform args.code and return a { code, map } object when you're ready!
     })
-  }
+  },
 }
 ```
 

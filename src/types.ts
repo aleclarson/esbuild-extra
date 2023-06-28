@@ -11,6 +11,10 @@ export interface BuildExtensions extends Pick<esbuild.PluginBuild, 'onLoad'> {
     options?: esbuild.ResolveOptions
   ): Promise<esbuild.ResolveResult>
 
+  load(
+    args: { path: string } & Partial<esbuild.OnLoadArgs>
+  ): Promise<esbuild.OnLoadResult>
+
   onTransform(
     options: OnTransformOptions,
     callback: (

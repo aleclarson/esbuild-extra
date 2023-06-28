@@ -92,15 +92,20 @@ export function getBuildExtensions(
     )
 
     async function load(
-      args: esbuild.OnLoadArgs
+      partialArgs: { path: string } & Partial<esbuild.OnLoadArgs>
     ): Promise<esbuild.OnLoadResult> {
-      const { namespace = 'file' } = args
+      const args: esbuild.OnLoadArgs = {
+        namespace: 'file',
+        pluginData: undefined,
+        suffix: '',
+        ...partialArgs,
+      }
 
-      let result: esbuild.OnLoadResult | null | void
+      let result: esbuild.OnLoadResult | null | void = null
       let errors: esbuild.Message[] = []
 
       for (const [pluginName, options, callback] of onLoadRules) {
-        if (namespace !== (options.namespace ?? 'file')) {
+        if (args.namespace !== (options.namespace ?? 'file')) {
           continue
         }
 
@@ -650,6 +655,7 @@ export function getBuildExtensions(
 
           return result
         },
+        load,
         onLoad(options, callback) {
           onLoad(options, async args => {
             const result = await callback(args)
