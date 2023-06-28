@@ -48,7 +48,8 @@ export function getBuildExtensions(
   pluginBuild: esbuild.PluginBuild,
   pluginName: string
 ): BuildExtensions {
-  if ('onTransform' in pluginBuild) {
+  // If the pluginBuild already has the extensions, return it.
+  if ('onTransform' in (pluginBuild as any)) {
     return pluginBuild as any
   }
 
