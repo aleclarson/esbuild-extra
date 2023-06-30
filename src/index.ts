@@ -15,9 +15,10 @@ import {
 import {
   BuildExtensions,
   Chunk,
+  EmitChunkOptions,
   File,
   OnTransformArgs,
-  EmitChunkOptions,
+  OnTransformOptions,
 } from './types'
 
 export * from './types'
@@ -194,7 +195,6 @@ export function getBuildExtensions(
       }
 
       const {
-        namespace = 'file',
         errors = [],
         warnings = [],
         watchFiles = [],
@@ -209,13 +209,25 @@ export function getBuildExtensions(
       let resolveDir = loadResult.resolveDir ?? args.resolveDir
       let maps: any[] = []
 
+      const isNamespaceCompatible = ({
+        namespace = '*',
+      }: OnTransformOptions) => {
+        if (namespace === '*') {
+          return true
+        }
+        if ((args.namespace ?? 'file') === namespace) {
+          return true
+        }
+        return false
+      }
+
       const applyTransformRule = async (
         rule: TransformRule,
         rules?: Set<TransformRule>
       ): Promise<esbuild.Message | void> => {
         const [pluginName, options, callback] = rule
 
-        if (namespace !== (options.namespace ?? 'file')) {
+        if (!isNamespaceCompatible(options)) {
           return
         }
 
@@ -260,7 +272,7 @@ export function getBuildExtensions(
           path: args.path,
           code: (initialCode = decodeContents(loadResult.contents!)),
           loader,
-          namespace,
+          namespace: args.namespace ?? 'file',
           pluginData: loadResult.pluginData || args.pluginData || {},
           suffix: args.suffix || '',
         }
