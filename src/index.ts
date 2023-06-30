@@ -179,7 +179,7 @@ export function getBuildExtensions(
 
     async function transform(
       args: TransformArgs
-    ): Promise<esbuild.OnLoadResult | null | undefined> {
+    ): Promise<esbuild.OnLoadResult> {
       const loadResult = args.isResult
         ? omitKeys(args, ['isResult', 'path', 'suffix', 'namespace'])
         : await load(args)
@@ -191,7 +191,7 @@ export function getBuildExtensions(
         if (loadResult.watchDirs) {
           globalWatchDirs?.push(...loadResult.watchDirs)
         }
-        return
+        return loadResult
       }
 
       const {
@@ -724,21 +724,18 @@ export function getBuildExtensions(
 
           return result
         },
-        load,
-        onLoad(options, callback) {
-          onLoad(options, async args => {
-            const result = await callback(args)
-            if (!result) {
-              return
-            }
-
-            return transform({
-              ...result,
-              path: args.path,
-              namespace: args.namespace,
-              isResult: true,
-            })
+        async load(args) {
+          const result = await load(args)
+          return transform({
+            ...result,
+            path: args.path,
+            suffix: args.suffix,
+            namespace: args.namespace,
+            isResult: true,
           })
+        },
+        onLoad(options, callback) {
+          onLoad(options, args => this.load(args))
           onLoadRules.push([pluginName, options, callback])
         },
         onTransform({ loaders, extensions, ...options }, callback) {
