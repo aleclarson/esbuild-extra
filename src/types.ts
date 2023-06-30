@@ -51,6 +51,7 @@ export interface OnTransformResult {
   errors?: esbuild.Message[]
   warnings?: esbuild.Message[]
   watchFiles?: string[]
+  watchDirs?: string[]
   pluginData?: Record<string, any>
 }
 

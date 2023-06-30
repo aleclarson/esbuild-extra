@@ -66,6 +66,20 @@ export function getBuildExtensions(
     const onLoadRules: LoadRule[] = []
     const onTransformRules: TransformRule[] = []
 
+    let globalWatchFiles: string[] | undefined
+    let globalWatchDirs: string[] | undefined
+    if (initialOptions.metafile) {
+      pluginBuild.onStart(() => {
+        globalWatchFiles = []
+        globalWatchDirs = []
+      })
+      pluginBuild.onEnd(result => {
+        const metafile = result.metafile!
+        metafile.watchFiles = Array.from(new Set(globalWatchFiles))
+        metafile.watchDirs = Array.from(new Set(globalWatchDirs))
+      })
+    }
+
     const loaders: Record<string, esbuild.Loader> = {
       '.js': 'js',
       '.jsx': 'jsx',
@@ -158,6 +172,8 @@ export function getBuildExtensions(
           resolveDir?: undefined
           errors?: undefined
           warnings?: undefined
+          watchFiles?: undefined
+          watchDirs?: undefined
         })
 
     async function transform(
@@ -168,10 +184,22 @@ export function getBuildExtensions(
         : await load(args)
 
       if (!loadResult.contents) {
+        if (loadResult.watchFiles) {
+          globalWatchFiles?.push(...loadResult.watchFiles)
+        }
+        if (loadResult.watchDirs) {
+          globalWatchDirs?.push(...loadResult.watchDirs)
+        }
         return
       }
 
-      const { namespace = 'file', errors = [], warnings = [] } = args
+      const {
+        namespace = 'file',
+        errors = [],
+        warnings = [],
+        watchFiles = [],
+        watchDirs = [],
+      } = args
 
       let initialCode!: string
       let loader: esbuild.Loader | undefined
@@ -260,6 +288,12 @@ export function getBuildExtensions(
             }
             if (result.map) {
               maps.push(result.map)
+            }
+            if (result.watchFiles) {
+              watchFiles.push(...result.watchFiles)
+            }
+            if (result.watchDirs) {
+              watchDirs.push(...result.watchDirs)
             }
             if (result.resolveDir) {
               resolveDir = result.resolveDir
@@ -371,12 +405,21 @@ export function getBuildExtensions(
         }
       }
 
+      if (watchFiles.length) {
+        globalWatchFiles?.push(...watchFiles)
+      }
+      if (watchDirs.length) {
+        globalWatchDirs?.push(...watchDirs)
+      }
+
       // No code transformation was applied
       if (!transformArgs || transformArgs.code === initialCode) {
         return {
           ...loadResult,
           pluginData: transformArgs?.pluginData || loadResult.pluginData,
           resolveDir,
+          watchFiles,
+          watchDirs,
           warnings,
           errors,
         }
@@ -421,6 +464,8 @@ export function getBuildExtensions(
         loader: transformArgs.loader,
         pluginData: transformArgs.pluginData,
         resolveDir,
+        watchFiles,
+        watchDirs,
         warnings,
         errors,
       }
@@ -535,6 +580,9 @@ export function getBuildExtensions(
     }
 
     const emitFile = async (source: string, buffer?: string | Buffer) => {
+      let watchFiles: string[] | undefined
+      let watchDirs: string[] | undefined
+
       if (!buffer) {
         const result = await load({
           pluginData: null,
@@ -543,10 +591,17 @@ export function getBuildExtensions(
           path: source,
         })
 
-        if (result && result.contents) {
+        if (result.contents) {
           buffer = Buffer.from(result.contents)
         } else {
           buffer = fs.readFileSync(source)
+        }
+
+        if (result.watchFiles) {
+          watchFiles = result.watchFiles
+        }
+        if (result.watchDirs) {
+          watchDirs = result.watchDirs
         }
       } else if (typeof buffer === 'string') {
         buffer = Buffer.from(buffer)
@@ -586,6 +641,8 @@ export function getBuildExtensions(
             entryPoint: path.relative(absWorkingDir, source),
           },
         },
+        watchFiles: watchFiles || [],
+        watchDirs: watchDirs || [],
       })
 
       const fileResult: File = {
@@ -844,8 +901,8 @@ function createOutputFile(path: string, contents: Buffer): esbuild.OutputFile {
 }
 
 function createResult(
-  outputFiles?: esbuild.OutputFile[],
-  metafile: esbuild.Metafile = { inputs: {}, outputs: {} }
+  outputFiles: esbuild.OutputFile[] | undefined,
+  metafile: esbuild.Metafile
 ) {
   return {
     errors: [] as esbuild.Message[],
