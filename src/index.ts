@@ -3,6 +3,7 @@
 // for chained manipulation of the source code.
 
 import * as crypto from 'crypto'
+import enhancedResolve from 'enhanced-resolve'
 import * as esbuild from 'esbuild'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -42,8 +43,13 @@ export function wrapPlugins<Options extends esbuild.BuildOptions>(
 
 type LoadParams = Parameters<esbuild.PluginBuild['onLoad']>
 type TransformParams = Parameters<BuildExtensions['onTransform']>
+type ResolveParams = Parameters<esbuild.PluginBuild['onResolve']>
+type ResolvedParams = Parameters<BuildExtensions['onResolved']>
+
 type LoadRule = [pluginName: string, ...params: LoadParams]
 type TransformRule = [pluginName: string, ...params: TransformParams]
+type ResolveRule = [pluginName: string, ...params: ResolveParams]
+type ResolvedRule = [pluginName: string, ...params: ResolvedParams]
 
 export function getBuildExtensions(
   pluginBuild: esbuild.PluginBuild,
@@ -66,6 +72,8 @@ export function getBuildExtensions(
   if (!extensions) {
     const onLoadRules: LoadRule[] = []
     const onTransformRules: TransformRule[] = []
+    const onResolveRulesMap = new Map<string | undefined, ResolveRule[]>()
+    const onResolvedRules: ResolvedRule[] = []
 
     let globalWatchFiles: string[] | undefined
     let globalWatchDirs: string[] | undefined
@@ -668,6 +676,65 @@ export function getBuildExtensions(
       return fileResult
     }
 
+    const nodeResolve = enhancedResolve.create({
+      extensions: initialOptions.resolveExtensions || [
+        '.tsx',
+        '.ts',
+        '.jsx',
+        '.js',
+        '.css',
+        '.json',
+      ],
+    })
+
+    const postResolve = async (
+      args: esbuild.OnResolveArgs,
+      resolved: esbuild.OnResolveResult & {
+        path: string
+        pluginName: string
+      }
+    ): Promise<esbuild.OnResolveResult> => {
+      const { namespace = 'file' } = resolved
+      for (const rule of onResolvedRules) {
+        const options = rule[1]
+        if (!options.filter.test(resolved.path)) {
+          continue
+        }
+        if (namespace !== (options.namespace ?? 'file')) {
+          continue
+        }
+        const onResolved = rule[2]
+        const result = await onResolved(args, resolved)
+        if (result) {
+          resolved = {
+            ...resolved,
+            ...result,
+            errors: mergeArrays(resolved.errors, result.errors),
+            warnings: mergeArrays(resolved.warnings, result.warnings),
+          }
+        }
+      }
+      if (resolved.watchFiles) {
+        globalWatchFiles?.push(...resolved.watchFiles)
+      }
+      if (resolved.watchDirs) {
+        globalWatchDirs?.push(...resolved.watchDirs)
+      }
+      return resolved
+    }
+
+    const resolveFile = async (args: esbuild.OnResolveArgs) => {
+      const resolvedPath = await new Promise<string>((setResult, setError) => {
+        nodeResolve(args.resolveDir, args.path, (error, result) =>
+          error ? setError(error) : setResult(result as string)
+        )
+      })
+      return postResolve(args, {
+        path: resolvedPath,
+        pluginName: 'node-resolve',
+      })
+    }
+
     let {
       absWorkingDir = process.cwd(),
       outfile,
@@ -688,6 +755,7 @@ export function getBuildExtensions(
     const RESOLVED_AS_MODULE = 2
 
     extensions = (pluginBuild, pluginName) => {
+      const onResolve = pluginBuild.onResolve.bind(pluginBuild)
       const onLoad = pluginBuild.onLoad.bind(pluginBuild)
 
       return {
@@ -723,6 +791,51 @@ export function getBuildExtensions(
           }
 
           return result
+        },
+        onResolve(options, callback) {
+          const namespace = options.namespace ?? 'file'
+
+          let onResolveRules = onResolveRulesMap.get(namespace) || []
+          if (!onResolveRules.length) {
+            onResolveRulesMap.set(namespace, onResolveRules)
+          }
+
+          // This 1-based index is used to detect the last onResolve hook.
+          const index = onResolveRules.push([pluginName, options, callback])
+
+          onResolve(options, async args => {
+            const result = await callback(args)
+            if (result && result.path) {
+              result.pluginName ||= pluginName
+              return postResolve(args, result as any)
+            }
+            // If not the last rule, skip the fallback resolver.
+            if (index < onResolveRules.length) {
+              return null
+            }
+            // Resolve as a file but still use postResolve.
+            if (namespace === 'file') {
+              return resolveFile(args)
+            }
+            return null
+          })
+        },
+        onResolved(options, callback) {
+          onResolvedRules.push([pluginName, options, callback])
+
+          const namespace = options.namespace ?? 'file'
+          const onResolveRules = onResolveRulesMap.get(namespace) || []
+          if (!onResolveRules.length) {
+            onResolveRulesMap.set(namespace, onResolveRules)
+
+            const index = onResolveRules.push([pluginName, options, null!])
+            onResolve(options, args => {
+              if (index < onResolveRules.length) {
+                return null
+              }
+              return resolveFile(args)
+            })
+          }
         },
         async load(args) {
           const result = await load(args)
@@ -933,4 +1046,10 @@ function omitKeys<T extends object, P extends keyof T>(
     }
   }
   return result
+}
+
+function mergeArrays<T>(a: T[] | undefined, b: T[] | undefined) {
+  if (!a) return b
+  if (!b) return a
+  return [...a, ...b]
 }

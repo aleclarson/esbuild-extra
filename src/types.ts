@@ -2,7 +2,8 @@ import esbuild from 'esbuild'
 
 type Promisable<T> = T | Promise<T>
 
-export interface BuildExtensions extends Pick<esbuild.PluginBuild, 'onLoad'> {
+export interface BuildExtensions
+  extends Pick<esbuild.PluginBuild, 'onResolve' | 'onLoad'> {
   getLoader(id: string): esbuild.Loader | undefined
   isEmittedPath(id: string): boolean
 
@@ -10,6 +11,19 @@ export interface BuildExtensions extends Pick<esbuild.PluginBuild, 'onLoad'> {
     path: string,
     options?: esbuild.ResolveOptions
   ): Promise<esbuild.ResolveResult>
+
+  /**
+   * Manipulate the result of a successful `onResolve` hook.
+   *
+   * The returned object will be merged with the original result.
+   */
+  onResolved(
+    options: esbuild.OnResolveOptions,
+    callback: (
+      args: esbuild.OnResolveArgs,
+      result: esbuild.OnResolveResult & { path: string; pluginName: string }
+    ) => Promisable<esbuild.OnResolveResult | null | undefined>
+  ): void
 
   load(
     args: { path: string } & Partial<esbuild.OnLoadArgs>

@@ -48,6 +48,7 @@
   "dependencies": {
     "@ampproject/remapping": "^2.2.1",
     "convert-source-map": "^2.0.0",
+    "enhanced-resolve": "^5.15.0",
     "tsconfck": "^2.1.1"
   }
 }
