@@ -165,7 +165,7 @@ export function getBuildExtensions(
           path: string
           isResult: true
           namespace?: string
-          suffix?: undefined
+          suffix?: string
         })
       | (esbuild.OnLoadArgs & {
           loader?: undefined
@@ -181,7 +181,7 @@ export function getBuildExtensions(
       args: TransformArgs
     ): Promise<esbuild.OnLoadResult | null | undefined> {
       const loadResult = args.isResult
-        ? omitKeys(args, ['isResult', 'path', 'namespace'])
+        ? omitKeys(args, ['isResult', 'path', 'suffix', 'namespace'])
         : await load(args)
 
       if (!loadResult.contents) {
