@@ -10,7 +10,7 @@ The lighter alternative to `@chialab/esbuild-rna` that extends `esbuild` plugins
 
 That's it, for now!
 
-This package is ~15x smaller than `@chialab/esbuild-rna` according to PackagePhobia (see ~400 KB [here](https://packagephobia.com/result?p=esbuild-extra) and ~6 MB [here](https://packagephobia.com/result?p=%40chialab%2Fesbuild-rna)).
+This package is ~6x smaller than `@chialab/esbuild-rna` according to PackagePhobia (see ~1 MB [here](https://packagephobia.com/result?p=esbuild-extra) and ~6 MB [here](https://packagephobia.com/result?p=%40chialab%2Fesbuild-rna)).
 
 ## Usage
 
