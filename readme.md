@@ -3,9 +3,10 @@
 The lighter alternative to `@chialab/esbuild-rna` that extends `esbuild` plugins with the following new features:
 
 - `onTransform` build hook for co-operative file transformation (with sourcemap support)
+- `onResolved` build hook for manipulation of `onResolve` results
+- `load` build method for loading a file via `onLoad` and `onTransform` hooks
 - `emitChunk` and `emitFile` build methods for dynamically generated outputs
 - `resolveLocallyFirst` build method for path resolution where local files are preferred, but plugin-resolved paths are used otherwise
-- `load` build method for loading a file via `onLoad` and `onTransform` hooks
 
 That's it, for now!
 
@@ -41,9 +42,13 @@ export default {
 }
 ```
 
-## JS plugins for TypeScript files
+### onTransform hooks
 
-Here's one last cool thing about this package (that not even `@chialab/esbuild-rna` supports). If your plugin uses a JavaScript parser that doesn't support TypeScript syntax, no problem. Just filter with `{ loaders: ['js', 'jsx'] }` and your plugin will still run for TypeScript files! What happens is that `esbuild-extra` will transform TypeScript files into JavaScript when it notices an `onTransform` hook that works with JavaScript files only. Plugins that work with TypeScript will run before any JavaScript plugins, but the order of JavaScript plugins will be otherwise preserved.
+Here are some tips about the `onTransform` feature.
+
+- If no `namespace` is defined for an `onTransform` hook, it will be applied to every compatible file regardless of the file's namespace. You can use `namespace: "file"` to only affect real files without a custom namespace.
+
+- If an `onTransform` hook is targeted at `.js` files, it will also be applied to `.jsx`, `.ts`, and `.tsx` files, but only after any `onTransform` hooks targeting those specific extensions are applied and also after the file is transpiled to plain JavaScript. Similarly, this works for `onTransform` hooks targeting `.jsx` files or `.ts` files (both applied to `.tsx` files after transpilation).
 
 ## Prior art
 
