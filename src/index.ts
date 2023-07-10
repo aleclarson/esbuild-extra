@@ -83,7 +83,7 @@ export function getBuildExtensions(
         globalWatchDirs = []
       })
       pluginBuild.onEnd(result => {
-        const metafile = result.metafile!
+        const metafile = result.metafile as Metafile
         metafile.watchFiles = Array.from(new Set(globalWatchFiles))
         metafile.watchDirs = Array.from(new Set(globalWatchDirs))
       })
@@ -1022,9 +1022,14 @@ function createOutputFile(path: string, contents: Buffer): esbuild.OutputFile {
   }
 }
 
+type Metafile = esbuild.Metafile & {
+  watchFiles: string[]
+  watchDirs: string[]
+}
+
 function createResult(
   outputFiles: esbuild.OutputFile[] | undefined,
-  metafile: esbuild.Metafile
+  metafile: Metafile
 ) {
   return {
     errors: [] as esbuild.Message[],
