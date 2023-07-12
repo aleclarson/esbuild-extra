@@ -1,6 +1,6 @@
 {
   "name": "esbuild-extra",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Extra features for esbuild plugins",
   "main": "dist/index.mjs",
   "types": "dist/index.d.ts",
