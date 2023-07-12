@@ -396,10 +396,12 @@ export function getBuildExtensions(
                 break transform
               }
             }
+            // Unset this to ensure the next applyTransformRule call below isn't added to this.
+            jsxTransforms = undefined
           }
 
           // Compile TS & JSX to JS.
-          if (jsTransforms) {
+          if (tsconfigRaw || jsTransforms) {
             const error = await applyTransformRule(
               createEsbuildRule({
                 // This ensures the tsconfig.json is respected in cases
@@ -414,6 +416,9 @@ export function getBuildExtensions(
               errors.push(error)
               break transform
             }
+          }
+
+          if (jsTransforms) {
             for (const rule of jsTransforms) {
               const error = await applyTransformRule(rule, jsTransforms)
               if (error) {
