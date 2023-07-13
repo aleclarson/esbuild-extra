@@ -3,8 +3,8 @@ import { BuildExtensions } from './types'
 declare module 'esbuild' {
   interface PluginBuild extends BuildExtensions {}
   interface Metafile {
-    watchFiles: string[]
-    watchDirs: string[]
+    watchFiles: Map<string, Set<string>>
+    watchDirs: Map<string, Set<string>>
   }
 }
 

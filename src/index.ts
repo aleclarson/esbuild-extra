@@ -75,17 +75,17 @@ export function getBuildExtensions(
     const onResolveRulesMap = new Map<string | undefined, ResolveRule[]>()
     const onResolvedRules: ResolvedRule[] = []
 
-    let globalWatchFiles: string[] | undefined
-    let globalWatchDirs: string[] | undefined
+    let globalWatchFiles: MapOfSets<string, string> | undefined
+    let globalWatchDirs: MapOfSets<string, string> | undefined
     if (initialOptions.metafile) {
       pluginBuild.onStart(() => {
-        globalWatchFiles = []
-        globalWatchDirs = []
+        globalWatchFiles = new Map()
+        globalWatchDirs = new Map()
       })
       pluginBuild.onEnd(result => {
         const metafile = result.metafile as Metafile
-        metafile.watchFiles = Array.from(new Set(globalWatchFiles))
-        metafile.watchDirs = Array.from(new Set(globalWatchDirs))
+        metafile.watchFiles = globalWatchFiles!
+        metafile.watchDirs = globalWatchDirs!
       })
     }
 
@@ -168,6 +168,25 @@ export function getBuildExtensions(
       }
     }
 
+    function coalesceWatchedPaths(
+      relatedPath: string,
+      result: {
+        watchFiles?: string[]
+        watchDirs?: string[]
+      }
+    ) {
+      if (globalWatchFiles) {
+        result.watchFiles?.forEach(file =>
+          addToMappedSet(globalWatchFiles!, file, relatedPath)
+        )
+      }
+      if (globalWatchDirs) {
+        result.watchDirs?.forEach(dir =>
+          addToMappedSet(globalWatchDirs!, dir, relatedPath)
+        )
+      }
+    }
+
     type TransformArgs =
       | (esbuild.OnLoadResult & {
           path: string
@@ -193,12 +212,7 @@ export function getBuildExtensions(
         : await load(args)
 
       if (!loadResult.contents) {
-        if (loadResult.watchFiles) {
-          globalWatchFiles?.push(...loadResult.watchFiles)
-        }
-        if (loadResult.watchDirs) {
-          globalWatchDirs?.push(...loadResult.watchDirs)
-        }
+        coalesceWatchedPaths(args.path, loadResult)
         return loadResult
       }
 
@@ -430,11 +444,8 @@ export function getBuildExtensions(
         }
       }
 
-      if (watchFiles.length) {
-        globalWatchFiles?.push(...watchFiles)
-      }
-      if (watchDirs.length) {
-        globalWatchDirs?.push(...watchDirs)
+      if (watchFiles.length || watchDirs.length) {
+        coalesceWatchedPaths(args.path, { watchFiles, watchDirs })
       }
 
       // No code transformation was applied
@@ -605,8 +616,8 @@ export function getBuildExtensions(
     }
 
     const emitFile = async (source: string, buffer?: string | Buffer) => {
-      let watchFiles: string[] | undefined
-      let watchDirs: string[] | undefined
+      let watchFiles: MapOfSets<string, string> | undefined
+      let watchDirs: MapOfSets<string, string> | undefined
 
       if (!buffer) {
         const result = await load({
@@ -615,18 +626,11 @@ export function getBuildExtensions(
           suffix: '',
           path: source,
         })
-
+        coalesceWatchedPaths(source, result)
         if (result.contents) {
           buffer = Buffer.from(result.contents)
         } else {
           buffer = fs.readFileSync(source)
-        }
-
-        if (result.watchFiles) {
-          watchFiles = result.watchFiles
-        }
-        if (result.watchDirs) {
-          watchDirs = result.watchDirs
         }
       } else if (typeof buffer === 'string') {
         buffer = Buffer.from(buffer)
@@ -666,8 +670,8 @@ export function getBuildExtensions(
             entryPoint: path.relative(absWorkingDir, source),
           },
         },
-        watchFiles: watchFiles || [],
-        watchDirs: watchDirs || [],
+        watchFiles: watchFiles || new Map(),
+        watchDirs: watchDirs || new Map(),
       })
 
       const fileResult: File = {
@@ -719,12 +723,7 @@ export function getBuildExtensions(
           }
         }
       }
-      if (resolved.watchFiles) {
-        globalWatchFiles?.push(...resolved.watchFiles)
-      }
-      if (resolved.watchDirs) {
-        globalWatchDirs?.push(...resolved.watchDirs)
-      }
+      coalesceWatchedPaths(args.importer + '->' + args.path, resolved)
       return resolved
     }
 
@@ -1028,8 +1027,8 @@ function createOutputFile(path: string, contents: Buffer): esbuild.OutputFile {
 }
 
 type Metafile = esbuild.Metafile & {
-  watchFiles: string[]
-  watchDirs: string[]
+  watchFiles: MapOfSets<string, string>
+  watchDirs: MapOfSets<string, string>
 }
 
 function createResult(
@@ -1062,4 +1061,18 @@ function mergeArrays<T>(a: T[] | undefined, b: T[] | undefined) {
   if (!a) return b
   if (!b) return a
   return [...a, ...b]
+}
+
+type MapOfSets<Key, Value> = Map<Key, Set<Value>>
+
+function addToMappedSet<Key, Value>(
+  map: Map<Key, Set<Value>>,
+  key: Key,
+  value: Value
+) {
+  let set = map.get(key)
+  if (!set) {
+    map.set(key, (set = new Set()))
+  }
+  set.add(value)
 }
