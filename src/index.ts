@@ -1,7 +1,3 @@
-// This module is largely based on @chialabs/esbuild-rna, hence its file
-// name. It provides an onTransform hook to esbuild plugins that allows
-// for chained manipulation of the source code.
-
 import * as crypto from 'crypto'
 import enhancedResolve from 'enhanced-resolve'
 import * as esbuild from 'esbuild'
