@@ -79,9 +79,10 @@ export function getBuildExtensions(
         globalWatchDirs = new Map()
       })
       pluginBuild.onEnd(result => {
-        const metafile = result.metafile as Metafile
-        metafile.watchFiles = globalWatchFiles!
-        metafile.watchDirs = globalWatchDirs!
+        if (result.metafile) {
+          result.metafile.watchFiles = globalWatchFiles!
+          result.metafile.watchDirs = globalWatchDirs!
+        }
       })
     }
 
