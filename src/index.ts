@@ -299,7 +299,7 @@ export function getBuildExtensions(
         try {
           const result = await callback(transformArgs)
           if (result) {
-            if (result.code) {
+            if (result.code != null) {
               transformArgs.code = result.code
             }
             if (result.loader && result.loader != transformArgs.loader) {
