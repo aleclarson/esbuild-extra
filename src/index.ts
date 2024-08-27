@@ -326,7 +326,7 @@ export function getBuildExtensions(
             if (result.watchDirs) {
               watchDirs.push(...result.watchDirs)
             }
-            if (result.resolveDir) {
+            if (result.resolveDir != null) {
               resolveDir = result.resolveDir
             }
             if (result.pluginData) {
