@@ -36,7 +36,7 @@
     "@alloc/fast-rimraf": "^1.0.8",
     "@alloc/prettier-config": "^1.0.0",
     "@types/convert-source-map": "^2.0.0",
-    "@types/node": "^18.15.11",
+    "@types/node": "^22.13.14",
     "esbuild": "^0.17.17",
     "prettier": "^2.8.7",
     "tsup": "^6.7.0",

@@ -625,7 +625,7 @@ export function getBuildExtensions(
         })
         coalesceWatchedPaths(source, result)
         if (result.contents) {
-          buffer = Buffer.from(result.contents)
+          buffer = Buffer.from(result.contents as Uint8Array)
         } else {
           buffer = fs.readFileSync(source)
         }
@@ -946,18 +946,10 @@ function decodeContents(contents: string | Uint8Array) {
 
 function hash(buffer: string | Buffer | Uint8Array) {
   const hash = crypto.createHash('sha1')
-  hash.update(Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer))
+  hash.update(Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer as Uint8Array))
   return hash.digest('hex').substring(0, 8)
 }
 
-/**
- * Create file path replacing esbuild patterns.
- * @see https://esbuild.github.io/api/#chunk-names
- * @param {string} pattern The esbuild pattern.
- * @param {string} filePath The full file path.
- * @param {Buffer|string} buffer The file contents.
- * @returns {string}
- */
 function computeName(
   pattern: string,
   dir: string,
