@@ -507,6 +507,22 @@ export function getBuildExtensions(
     const chunks = new Map<string, Chunk>()
     const files = new Map<string, File>()
 
+    if (!initialOptions.write) {
+      pluginBuild.onEnd(result => {
+        const outputFiles = result.outputFiles!
+        for (const chunk of chunks.values()) {
+          for (const outputFile of chunk.outputFiles!) {
+            outputFiles.push(outputFile)
+          }
+        }
+        for (const file of files.values()) {
+          for (const outputFile of file.outputFiles!) {
+            outputFiles.push(outputFile)
+          }
+        }
+      })
+    }
+
     const isEmittedPath = (id: string) => {
       for (const chunk of chunks.values()) {
         if (chunk.id === id) {
