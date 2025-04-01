@@ -509,6 +509,11 @@ export function getBuildExtensions(
     const chunks = new Map<string, Chunk>()
     const files = new Map<string, File>()
 
+    pluginBuild.onStart(() => {
+      chunks.clear()
+      files.clear()
+    })
+
     if (!initialOptions.write) {
       pluginBuild.onEnd(result => {
         const outputFiles = result.outputFiles!
