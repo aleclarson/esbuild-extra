@@ -964,7 +964,9 @@ function decodeContents(contents: string | Uint8Array) {
 
 function hash(buffer: string | Buffer | Uint8Array) {
   const hash = crypto.createHash('sha1')
-  hash.update(Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer as Uint8Array))
+  hash.update(
+    Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer as Uint8Array)
+  )
   return hash.digest('hex').substring(0, 8)
 }
 
