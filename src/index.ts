@@ -626,12 +626,16 @@ export function getBuildExtensions(
     ) => {
       outbase ||= getOutBase(absWorkingDir, initialOptions)
 
-      const dir = path.relative(outbase, path.dirname(filePath))
-      const name = path.basename(filePath)
-
       return path.resolve(
         outdir || sourceRoot || absWorkingDir,
-        computeName(pattern, dir, name, buffer)
+        computeName(
+          pattern,
+          path
+            .relative(outbase, path.dirname(filePath))
+            .replace(/^(\.\.\/)+/, ''),
+          path.basename(filePath),
+          buffer
+        )
       )
     }
 
