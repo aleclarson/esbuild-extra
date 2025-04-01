@@ -91,3 +91,8 @@ export interface File extends esbuild.BuildResult {
   filePath: string
   metafile: esbuild.Metafile
 }
+
+export interface MetafileExtensions extends esbuild.Metafile {
+  watchFiles: Map<string, Set<string>>
+  watchDirs: Map<string, Set<string>>
+}

@@ -1,11 +1,8 @@
-import { BuildExtensions } from './types'
+import { BuildExtensions, MetafileExtensions } from './types'
 
 declare module 'esbuild' {
   interface PluginBuild extends BuildExtensions {}
-  interface Metafile {
-    watchFiles: Map<string, Set<string>>
-    watchDirs: Map<string, Set<string>>
-  }
+  interface Metafile extends MetafileExtensions {}
 }
 
 export {}

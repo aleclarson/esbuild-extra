@@ -16,6 +16,7 @@ import {
   File,
   OnTransformArgs,
   OnTransformOptions,
+  MetafileExtensions,
 } from './types'
 
 export * from './types'
@@ -79,9 +80,10 @@ export function getBuildExtensions(
         globalWatchDirs = new Map()
       })
       pluginBuild.onEnd(result => {
-        if (result.metafile) {
-          result.metafile.watchFiles = globalWatchFiles!
-          result.metafile.watchDirs = globalWatchDirs!
+        const metafile = result.metafile as MetafileExtensions
+        if (metafile) {
+          metafile.watchFiles = globalWatchFiles!
+          metafile.watchDirs = globalWatchDirs!
         }
       })
     }
