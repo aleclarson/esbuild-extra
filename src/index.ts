@@ -80,7 +80,7 @@ export function getBuildExtensions(
         globalWatchDirs = new Map()
       })
       pluginBuild.onEnd(result => {
-        const metafile = result.metafile as MetafileExtensions
+        const metafile = result.metafile as (esbuild.Metafile & MetafileExtensions) | undefined
         if (metafile) {
           metafile.watchFiles = globalWatchFiles!
           metafile.watchDirs = globalWatchDirs!
